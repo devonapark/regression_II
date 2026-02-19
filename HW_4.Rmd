@@ -186,9 +186,11 @@ model_2_betas
 
 #Betas for Model 3
 
-model_3_betas = hwdata1 |> coxph(Surv(rectime, event) 
+model_3_beta = hwdata1 |> coxph(Surv(rectime, event) 
                            ~ hormone_grp*nodes + age + meno_status + size,
-                           data = _)|> 
+                           data = _)
+
+model_3_betas = model_3_beta|> 
   tidy(exponentiate = FALSE, conf.int = FALSE)
 
 
@@ -213,5 +215,9 @@ model_3_betas
 ```
 
 
+Get covariance matrix
+```{r}
+vcov(model_3_beta)
+```
 
 
