@@ -1,0 +1,347 @@
+---
+title: "HW_2"
+author: "Devon Park"
+date: "2026-02-06"
+output: github_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r}
+library(tidyverse)
+library(survival)
+library(survminer)
+```
+
+
+
+## Question 1 
+
+Listed below are values of survival and censoring time in years for 10 pateints.
+
+Death Time: 1.2, 4.5, 5.5, 8.5, 8.5, 11.5
+Censoring Time: 3.5, 4.5, 7, 8.5
+
+
+```{r}
+#Create data frame
+trial = tibble(
+  time = c(1.2, 4.5, 5.5, 8.5, 8.5, 11.5,
+           3.5, 4.5, 7, 8.5),
+  status = c(rep(1, 6),  # deaths
+             rep(0, 4))  # censored
+)
+
+trial
+
+```
+
+
+#### (a) Use SAS/R to generate the Kaplan-Meier estimates and 95% confidence interval of the survival function. Show the codes and outputs (only the relevant outputs).
+
+```{r}
+km_fit = survfit(
+  Surv(time, status) ~ 1,
+  data = trial,
+  conf.type = "log-log"
+)
+
+km_fit
+summary(km_fit)
+```
+
+
+
+
+#### (b) Use SAS/R to plot the Kaplan-Meier curve with 95% pointwise confidence interval. Show the codes and outputs (only the relevant outputs).
+
+
+```{r}
+#simplest
+plot(km_fit, conf.int = TRUE)
+
+#version 2: add pointwise and censored times
+plot(
+  km_fit,
+  xlab = "Time (years)",
+  ylab = "Survival probability",
+  conf.int = TRUE,      #add 95% pointwise CI bands
+  mark.time = TRUE,     #marks censored times
+  lwd = 2
+)
+
+#use ggplot
+ggsurvplot(
+  km_fit,
+  data = trial,
+  conf.int = TRUE,        #shaded 95% pointwise CI
+  censor = TRUE,          #mark censored times
+  xlab = "Time (years)",
+  ylab = "Survival probability",
+  risk.table = FALSE      #OPTIONAL:set TRUE if you want the risk table
+)
+```
+
+
+
+#### (e) Repeat the analyses in part (c) and (d) using SAS/R. Show the codes and outputs (only relevant outputs).
+
+- Calculate median survival time and its 95% CI 
+```{r}
+quantile(km_fit, probs=c(0.25, 0.5, 0.75), conf.int=TRUE)
+
+#Median = 50th percentile: 8.5 (1.2, NA)
+#There is not enough information in the data to place an upper bound on the median survival time with 95% confidence.
+#About half of the population is estimated to survive at least 8.5 years
+#With 95% confidence, the true median survival time is at least 1.2 years.- coming from the t value where the upper confidence band of the survival curve falls below 0.5.
+
+```
+
+
+
+- Manually caclulate mean survival time estimate $\hat{\mu}_1$
+
+
+```{r}
+tab = summary(km_fit)[["table"]]
+#^output of summary(km_fit) is a list. From list, extract the element whose name is exactly 'table'.
+#[["table]] extracts the unwrapped object vs ["table] extracts the list 
+
+
+rmean = tab["rmean"]
+se_rmean = tab["se(rmean)"]
+
+
+rmst_df = tibble(
+  mean      = rmean,
+  lower_95  = rmean - 1.96 * se_rmean,
+  upper_95  = rmean + 1.96 * se_rmean
+)
+
+rmst_df
+
+```
+
+
+Let $\hat{\mu_2}$ be the mean survival time estimate if all the censored observations were events. Manually estimate $\hat{\mu_2}$ and its 95% confidence interval, which one of $\hat{\mu_1}$ and $\hat{\mu_2}$ is bigger? Explain briefly. Use SAS/R to estimate $\hat{\mu_2}$.
+
+
+```{r}
+trial_all_events = trial |> 
+  mutate(status = 1L)   #treat ALL as deaths at their recorded time
+
+
+mean_surv <- trial_all_events |> 
+  summarise(mean_survival = mean(time)) |> 
+  pull(mean_survival)
+
+
+
+mean_surv
+```
+
+Kaplan Meyer Version
+```{r}
+fit_all = survfit(
+  Surv(time, status) ~ 1, 
+  data = trial_all_events, 
+  conf.type = "log-log")
+
+tab_all = summary(fit_all)[["table"]]
+rmean_all = tab_all["rmean"]
+se_all = tab_all["se(rmean)"]
+
+#Create df table for mean and 95% CI output
+tibble(
+  mean_survival = rmean_all,
+  lower_95 = rmean_all - 1.96 * se_all,
+  upper_95 = rmean_all + 1.96 * se_all
+)
+```
+
+
+Censoring is not treated as death in Kaplan–Meier. When someone is censored, KM effectively says:
+
+“We know they survived at least up to their censoring time, but we don’t know what happened after—so we don’t count them as dying there.”
+
+That makes the estimated survival curve stay higher for longer, which makes the area under the curve (the mean / RMST) larger.
+
+When you force censored observations to be events, you’re instead saying:
+
+“They died exactly at the censoring time.”
+
+That pushes the survival curve down earlier, shrinking the area under it → smaller mean.
+
+
+--
+The restricted mean survival time is the area under the Kaplan–Meier curve. Treating censored observations as events forces additional early failures, lowering the survival curve and reducing the area under it, so the estimated mean survival time decreases (6.32 vs 7.91).
+
+
+
+
+------
+## Question 2
+
+```{r}
+hw = read_csv("hwdata1-1.csv") |> 
+  mutate(
+    event = censrec, #Event indicator: 1 = recurrence, 0 = censored (based on codebook)
+    hormone_grp = factor(hormone, levels = c(1, 2), labels = c("Hormone: Yes", "Hormone: No")) #Hormone therapy groups (codebook: 1=Yes, 2=No)
+  )
+
+Q2 = Surv(time = hw$rectime, event = hw$event)
+
+#For each subject, here is how long we followed them, and whether the event happened or they were censored.
+#Q2 is not a model and not a dataset — it’s a special object that survival functions know how to read.
+```
+
+
+```{r}
+fit_horm = survfit(Q2 ~ hormone_grp, data = hw)
+
+
+ggsurvplot(
+  fit_horm, data = hw,
+  conf.int = TRUE,
+  pval = FALSE,
+  risk.table = FALSE,
+  xlab = "Days since diagnosis",
+  ylab = "Recurrence-free survival probability",
+  legend.title = "Hormone therapy"
+)
+```
+
+INTERPRETATION: The No hormone therapy group (blue) consistently has higher recurrence-free survival than the Hormone therapy group (red) throughout most of the follow-up.
+
+The curves begin to separate early (within the first ~500 days) and remain separated over time.
+
+This suggests that patients not receiving hormone therapy experienced lower recurrence rates (better recurrence-free survival).
+
+
+
+The difference between groups appears to increase gradually over time, rather than appearing as a sudden early drop.
+
+This indicates the treatment groups diverge in risk over the entire follow-up, not just at early times.
+
+This matters later when you discuss log-rank vs Wilcoxon tests.
+
+
+The 95% CI bands overlap, especially at later follow-up times.
+
+Toward the right tail of the plot, CIs widen substantially.
+
+Why?
+
+Fewer patients remain at risk (as shown in the risk table).
+
+Increased uncertainty late in follow-up.
+
+So while the point estimates suggest a difference, statistical significance must be formally assessed using a hypothesis test (log-rank), which is exactly what part (b) asks.
+
+
+The Kaplan–Meier curves show that patients who did not receive hormone therapy have consistently higher recurrence-free survival probabilities compared with patients who received hormone therapy. The survival curves begin to separate early after diagnosis and remain separated throughout most of the follow-up period, with the no-hormone group exhibiting better recurrence-free survival. Although the confidence intervals overlap, particularly at later times where fewer subjects remain at risk, the overall pattern suggests a difference in recurrence-free survival between the two hormone therapy groups.
+
+If you want it slightly shorter:
+
+The Kaplan–Meier curves suggest that recurrence-free survival is higher among patients who did not receive hormone therapy, with separation of the survival functions occurring early and persisting over time.
+
+
+
+## 2B
+
+Null hypothesis (H₀): The recurrence-free survival curves are the same for the two hormone therapy groups
+(equivalently: hazards are equal over time).
+
+Alternative hypothesis (H₁): The recurrence-free survival curves differ between the two hormone therapy groups
+(equivalently: hazards are not equal for at least some times).
+
+```{r}
+#Run the log rank test
+
+lr = survdiff(Q2 ~ hormone_grp, data = hw, rho = 0)  #rho=0 = log-rank
+lr
+
+
+```
+
+
+Reject the null hypothesis. 
+Here is a model answer that will get full credit:
+
+A log-rank test was used to compare recurrence-free survival between hormone therapy groups. The test yielded a chi-square statistic of 8.6 with 1 degree of freedom and a p-value of 0.003. At the α = 0.05 significance level, we reject the null hypothesis and conclude that recurrence-free survival differs between patients who received hormone therapy and those who did not.
+
+If you want to tie it back to the plot:
+
+This conclusion is consistent with the Kaplan–Meier curves, which show lower recurrence-free survival among patients receiving hormone therapy.
+
+#2C
+
+Run the Wilcoxon (Breslow / generalized Wilcoxon) test in R
+```{r}
+wilcox = survdiff(Q2 ~ hormone_grp, data = hw, rho = 1)
+wilcox
+```
+
+Same conclusion as log rank test. 
+The Wilcoxon/Breslow test (𝜌= 1 ρ=1) places more weight on earlier event times (when more subjects are at risk), while the log-rank test (𝜌= 0 ρ=0) weights event times more evenly over follow-up. Depending on when the group differences are strongest (early vs late), the Wilcoxon statistic can be smaller or larger than the log-rank statistic. In this dataset, the early differences are strong enough that the Wilcoxon test statistic is slightly larger (8.7 vs 8.6), but both tests yield the same conclusion.
+
+
+#2D 
+
+Categorize the tumor size into four groups using the sample quartiles (< 20, [20,25), [25,35), and ≥ 35). Test whether the survival functions are the same among the four groups using the generalized log-rank test at α= 0.05. Give the null and alternative hypothesis, test statistic, degrees of freedom, p-value, and conclusion.
+
+```{r}
+hw = hw |> 
+  mutate(
+    size_grp = cut(
+      size,
+      breaks = c(-Inf, 20, 25, 35, Inf),
+      right = FALSE,
+      labels = c("<20", "[20,25)", "[25,35)", ">=35")
+      )
+  )
+
+#check counts
+count(hw, size_grp)
+```
+
+
+
+Run the generalized log-rank test (rho = 0)
+```{r}
+Q2 = Surv(time = hw$rectime, event = hw$censrec) 
+glr = survdiff(Q2 ~ size_grp, data = hw, rho = 0)
+glr
+```
+
+Null Hypothesis:
+The recurrence-free survival functions are the same across the four tumor-size groups
+Alternative hypothesis (H₁):
+At least one tumor-size group has a different recurrence-free survival function
+
+
+Using the generalized log-rank test (ρ = 0) to compare recurrence-free survival across four tumor-size groups, the test yielded a chi-square statistic of 19.7 with 3 degrees of freedom and a p-value of 0.0002. At the α = 0.05 significance level, we reject the null hypothesis and conclude that recurrence-free survival differs among at least one of the tumor-size groups.
+
+
+
+

@@ -1,0 +1,54 @@
+---
+title: "HW_3"
+author: "Devon Park"
+date: "2026-02-15"
+output: github_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r}
+library(survival)
+library(survminer)
+```
+
+## Question 1 
+
+The Framingham Heart Study has collected data on cardiovascular risk factors and long-term follow-up for nearly 5,000 residents of Framingham, Massachusetts. These data were used as an example in Section 7.5 of Dupont (2008).
+
+An investigator wishes to study the association between baseline age and the risk of coronary heart disease (CHD) among 4,699 participants using a Cox proportional hazards regression model.
+
+
+#### Question 1A 
+
+(a) Specify the Cox proportional hazards model with baseline age included as a continuous covariate. Using SAS/R, estimate the hazards ratio and its 95% confidence interval.
+
+
+```{r}
+framingham = read.csv("HW3\framingham.csv")
+```
+
+
+
+
+

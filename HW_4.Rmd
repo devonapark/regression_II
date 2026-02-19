@@ -1,0 +1,217 @@
+---
+title: "HW_4"
+author: "Devon Park"
+date: "2026-02-19"
+output: github_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r}
+library(survival)
+library(survminer)
+library(broom)
+library(knitr)
+library(tidyverse)
+```
+
+# Question 1A
+We continue to use the hwdata1.csv as in Homework 1 to study risk factors for the breast cancer recurrence. Three Cox proportional hazards regression models were fit
+
+
+### Prep Data:
+```{r}
+hwdata1 = read_csv("hwdata1-1.csv") |> 
+  mutate(
+    event = censrec, 
+    #Event indicator: 1 = recurrence, 0 = censored (based on codebook)
+    
+    hormone_grp = factor(hormone, 
+                         levels = c(1, 2), 
+                         labels = c("Hormone: Yes", "Hormone: No")) |>
+                          #Hormone therapy groups (codebook: 1=Yes, 2=No)
+  
+        relevel(ref = "Hormone: No"),
+        #Making sure that "No Hormone" is the reference group
+  
+    meno_status = factor(menopause,
+                      levels = c(1, 2),
+                      labels = c("Menopausal: Yes", "Menopausal: No")) |> 
+      relevel(ref = "Menopausal: No")
+      #Women who are not yet experiencing menopause are the reference group
+  )
+    
+```
+
+
+### Model 1: Covariate: Hormone Therapy Group
+
+General Model: $\lambda(t|hormone) = \lambda_0e^{\beta_1*hormone}$
+
+The Cox proportional hazards with the covariate of horomone therapy group is as follows (beta rounded to three decimal places):
+$\lambda(t|hormone) = \lambda_0e^{0.364*hormone}$
+```{r}
+model_1_results = hwdata1 |> coxph(Surv(rectime, event) ~ hormone_grp, 
+                      data = _) |> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+#Clean Variable Names in Output
+model_1_results = model_1_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      TRUE ~ term
+    )
+  )
+
+
+#Cleaned Up Output
+model_1_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+```
+
+### Model 2: Covariates: Hormone therapy groups, Age, Menopause status, Tumor size, and Number of nodes
+
+General Model: $\lambda(t|X) = \lambda_0e^{\beta_1*hormone + \beta_2*age + \beta_3*menopausal + \beta_4*size + \beta_5*nodes}$
+
+The Cox proportional hazards with the above covariates is as follows (betas rounded to three decimal places):
+$\lambda(t|X) = \lambda_0e^{0.381*hormone -0.014*age -0.353*menopausal + 0.008*size + 0.052*nodes}$
+```{r}
+model_2_results = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp + age + meno_status + size + nodes,
+                           data = _) |> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+
+#Clean Variable Names in Output
+model_2_results = model_2_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      term == "meno_statusMenopausal: Yes" ~ "Menopausal: Yes",
+      term == "nodes" ~ "Nodes involved",
+      term == "age" ~ "Age (years)",
+      term == "size" ~ "Tumor size (mm)",
+      TRUE ~ term
+    )
+  )
+
+
+#Cleaned Up Output
+model_2_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+```
+
+
+### Model 3: Covariates: Hormone therapy groups, Age, Menopause status, Tumor size, Number of nodes, and the Interaction between hormone therapy groups and number of nodes
+
+General Model: $\lambda(t|X) = \lambda_0e^{\beta_1*hormone + \beta_2*age + \beta_3*menopausal + \beta_4*size + \beta_5*nodes + \beta_6*nodes*hormone}$
+
+The Cox proportional hazards model with interaction between hormone therapy and nodes is as follows (betas rounded to three decimal places): $\lambda(t|X) = \lambda_0e^{0.630*hormone  -0.015*age  -0.393*menopausal + 0.007*size + 0.083*nodes -0.038*nodes*hormone}$
+
+
+
+```{r}
+model_3_results = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp*nodes + age + meno_status + size,
+                           data = _)|> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+model_3_results = model_3_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      term == "hormone_grpHormone: Yes:nodes" ~ "Hormone: Yes × nodes",
+      term == "meno_statusMenopausal: Yes" ~ "Menopausal: Yes",
+      term == "nodes" ~ "Nodes involved",
+      term == "age" ~ "Age (years)",
+      term == "size" ~ "Tumor size (mm)",
+      TRUE ~ term
+    )
+  )
+
+#Cleaned Up Output
+model_3_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+
+
+
+#hormone_grp*nodes --> includes the individual terms as well as the interaction term
+```
+
+Betas of all the models 
+```{r}
+#Beta for Model 1
+model_1_betas = hwdata1 |> coxph(Surv(rectime, event) ~ hormone_grp, 
+                      data = _) 
+model_1_betas
+
+#Betas for Model 2
+model_2_betas = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp + age + meno_status + size + nodes,
+                           data = _)
+model_2_betas
+
+#Betas for Model 3
+
+model_3_betas = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp*nodes + age + meno_status + size,
+                           data = _)|> 
+  tidy(exponentiate = FALSE, conf.int = FALSE)
+
+
+model_3_betas = model_3_betas |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      term == "hormone_grpHormone: Yes:nodes" ~ "Hormone: Yes × nodes",
+      term == "meno_statusMenopausal: Yes" ~ "Menopausal: Yes",
+      term == "nodes" ~ "Nodes involved",
+      term == "age" ~ "Age (years)",
+      term == "size" ~ "Tumor size (mm)",
+      TRUE ~ term
+    )
+  ) |> 
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Betas", "Std Error", "Z statistic", "p-value"),
+    caption = ""
+  )
+model_3_betas
+```
+
+
+
+
