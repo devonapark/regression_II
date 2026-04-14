@@ -1,0 +1,364 @@
+---
+title: "HW6_draft"
+author: "Devon Park"
+date: "2026-03-27"
+output: github_document
+---
+
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(survival)
+library(survminer)
+library(broom)
+library(knitr)
+library(cmprsk)
+library(MASS)
+library(VGAM)
+```
+
+
+## Question 1
+
+
+```{r}
+#Load and Prep data
+melanoma = read.csv("HW6/Melanomahw6.csv") |> 
+  mutate(
+    #create a new status variable
+    status_cr = case_when( 
+      status == 2 ~ 0,  #censored = alive 
+      status == 1 ~ 1,  #event = died from melanoma 
+      status == 3 ~ 2   #cempeting event = died from other causes 
+    ),
+   
+    #alter to say 1 = died from melanoma, 0 = otherwise
+    cs_melanoma = as.integer(status_cr == 1),
+    
+    #udpate ulcer variable --> set references as absent 
+    ulcer_grp = factor(ulcer,
+                       levels = c(0, 1),
+                       labels = c("Ulcer: Absent", "Ulcer: Present")) |>
+                relevel(ref = "Ulcer: Absent"),
+    
+    #update sex variable --> set female as reference 
+    sex_grp = factor(sex,
+                     levels = c(0, 1),
+                     labels = c("Sex: Female", "Sex: Male")) |>
+              relevel(ref = "Sex: Female")
+  )
+  
+
+```
+
+
+#### Part a: Generate the cumulative incidence plot of death from melanoma for all patients.
+
+```{r}
+#generate cumulative incidience plot
+
+#cumulative incidence function
+cuminc_all = cuminc(ftime   = melanoma$time,
+                  fstatus = melanoma$status_cr)
+
+#produces estimate and vaiance at time points 1000,2000,3000, 4000, 5000 for each group
+
+#ignores 0 becuase this is the censored value (cuminc() doesnt treat it as a cause)
+
+
+#now, extract data when cause is melamona (aka 1) note all patientts in group 1 becuase we havent stratified yet
+
+#make a tidy table of just melanoma events
+cif_tidy = cuminc_all[["1 1"]] |>
+  as_tibble() |>
+  select(time, est, var)
+
+
+#plot only these events
+
+cif_plot = ggplot(cif_tidy, aes(x = time, y = est)) +
+  geom_step(color = "steelblue", linewidth = 1) +
+  labs(
+    title = "Cumulative Incidence of Death from Melanoma",
+    x     = "Time (days)",
+    y     = "Cumulative Incidence"
+  )
+```
+
+
+#### Part b: Examine the death from melanoma or other causes according to ulcer status (the presence or absence of ulceration). Formulate theexamination with a hypothesis framework by stating the null and alternative hypothesis, test statistic, degrees of freedom, p-value, and conclusion at a significance level α= 0.05.
+
+```{r}
+#no longer in one group --> now patients stratified by ulcer status
+
+cuminc_ulcer = cuminc(ftime   = melanoma$time,
+                      fstatus = melanoma$status_cr,
+                      group   = melanoma$ulcer_grp)
+
+#ge tthe Gray's test results: hypothesis test for comparing cumulative incidence functions across groups in a competing risks setting
+cuminc_ulcer$Tests
+
+
+#tisdy both groups (prep for plot)
+cif_absent = cuminc_ulcer[["Ulcer: Absent 1"]] |>
+  as_tibble() |>
+  select(time, est, var) |>
+  mutate(ulcer = "Ulcer: Absent")
+
+cif_present = cuminc_ulcer[["Ulcer: Present 1"]] |>
+  as_tibble() |>
+  select(time, est, var) |>
+  mutate(ulcer = "Ulcer: Present")
+
+#bind the two rows into a single table aka union
+
+cif_ulcer_groups = bind_rows(cif_absent, cif_present)
+
+
+#plot
+cif_ulcer_plot = ggplot(cif_ulcer_groups, aes(x = time, y = est, color = ulcer)) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  labs(
+    title = "Cumulative Incidence of Death from Melanoma by Ulcer Status",
+    x     = "Time (days)",
+    y     = "Cumulative Incidence",
+    color = "Ulceration"
+  )
+
+```
+
+Hypothesis framework:
+H0: The cumulative incidence of death from melanoma is equal between patients with and without ulcers.
+HA: The cumulative incidence of death from melanoma differs by ulcer status
+
+Test statistic: 21.44
+Degrees of freedom: 1
+P-value: 3.65 × 10⁻⁶
+Conclusion: At alpha = 0.05, we reject the null hypothesis. This suggests that there is a statistically significant difference in the cumulative incidence of death from melanoma between patients with ulcers and those without them.
+
+
+
+#### Part c: Carry out a competing risk analysis for death from melanoma by adjusting age, gender and ulcer status using the cause-specific hazards regression approach. Report analysis result and conclusion.
+
+
+```{r}
+#cause specific hazard regression approach
+#adjust for age gender and ulcer status
+#use cs_melanoa (all other causes censored) then only these events are handled here
+
+cs_model = coxph(Surv(time, cs_melanoma) ~ age + sex_grp + ulcer_grp,
+                 data = melanoma)
+
+summary(cs_model)
+```
+
+Conclusion: after adjusting for age, gender, and ulcer status, the overall model is significant (likelihood ratio test gives us p = 1×10⁻⁶). This suggests that these covariates jointly predicts melanoma death better than the model without any covariates. Based on the output, ulcer status is the only individually significant predictor. (age and sex have p values greater than 0.05 and p alue of ulcer status is <0.001) This means that patients with ulcers present have 3.38 times a higher cause-specific hazard of death from melanoma compared to those without ulcers (95% CI: 1.931, 5.910).
+
+
+
+#### Part d: Carry out a competing risk analysis for death from melanoma by adjusting age, gender and ulcer status using the subdistribution hazards regression approach. Report analysis result and conclusion.
+
+```{r}
+cov_matrix = melanoma |>
+  select(age, sex_grp, ulcer_grp) |>
+  mutate(across(c(sex_grp, ulcer_grp), ~ as.integer(.) - 1L)) |>
+  as.matrix()
+
+#used chat to help me get this code "as.integer(.) - 1L" becuase it originally was 1/2 and it needs ot be 0/1
+
+
+#in this model, other causes are kept in but weighted lower
+fg_model = crr(ftime    = melanoma$time,
+               fstatus  = melanoma$status_cr,
+               cov1     = cov_matrix,
+               failcode = 1,  #event = melanoma death
+               cencode  = 0)  #everything else = censored
+
+summary(fg_model)
+
+```
+
+Age and sex are not statistically significant at alpha = 0.05 as their p values are greater than 0.05. Like before ulcer status is significant (p<0.001) - Patients with ulcers present have a 3.22 times subdistribution hazard of death from melanoma compared to those without ulcers present. (95% CI: 1.870, 5.53). Here we are more specifically looking at the individual predictors (rather than in cox we are also looking at entire model)
+
+
+
+## Questions 2 and 3: 
+
+Use the file hwdata2.csv to answer following questions 2 and 3. It is a data on the results from a study examining factors that influence the decision of whether to apply to graduate school. A total of 400 college juniors were asked if they are unlikely, somewhat likely, or very likely to apply to graduate school.
+
+### Q2 Ordinal Logistic Regression
+Fit an ordinal logistic regression model to the data to assess the response to
+whether to apply to graduate school for students with and without parent(s)
+having graduate degree, and in public and private institutions.
+
+
+```{r}
+hwdata2 = read_csv("HW6/hwdata2.csv") |>
+  mutate(
+    apply_grp = factor(apply,
+                       levels = c(1, 2, 3),
+                       labels = c("Unlikely", "Somewhat Likely", "Very Likely")),
+  
+    apply_ord = factor(apply,
+                       levels = c(1, 2, 3),
+                       labels = c("Unlikely", "Somewhat Likely", "Very Likely"),
+                       ordered = TRUE), #ordinal outcome
+    
+    pared_grp = factor(pared,
+                       levels = c(0, 1),
+                       labels = c("Pared: No", "Pared: Yes")) |>
+                relevel(ref = "Pared: No"), #define reference = no parent with graduate degree
+    
+    
+    public_grp = factor(public,
+                        levels = c(0, 1),
+                        labels = c("Public: No", "Public: Yes")) |>
+                 relevel(ref = "Public: No") #define reference = private institution
+    
+  )
+```
+
+
+```{r}
+#make the ordinal logistic regression model
+ord_model = polr(apply_ord ~ pared_grp + public_grp,
+                 data    = hwdata2,
+                 weights = count,
+                 Hess    = TRUE) #I need Hess = TRUE to get SEs in summary
+
+summary(ord_model)
+```
+
+Output values:
+pared_grpPared: Yes   1.12141 --> having a parent wit a graduate degree
+public_grpPublic: Yes 0.09895 --> attending a public institution 
+
+cut points: threshold between two categories
+Unlikely|Somewhat Likely     0.3890 
+Somewhat Likely|Very Likely  2.4642
+
+
+```{r}
+#calculate p values from tvalues in table
+#make table
+summary_table = coef(summary(ord_model))
+
+
+p_values = pnorm(abs(summary_table[, "t value"]),
+                 lower.tail = FALSE) * 2
+#used chat to help me get the right calculation from tvalue to pvalue in R
+
+
+#add pvalues to my coefficent table above
+cbind(summary_table, p_values)
+
+```
+
+(1) Write down the model.
+
+(2) Test the proportional odds assumption. Show hypotheses, test statistic,
+degrees of freedom, p-value, and conclusion.
+
+```{r}
+#create different models that allow for different slopes between cut points
+#used chat to help me with this code to create these two models
+ord_model_unequal = vglm(apply_ord ~ pared_grp + public_grp,
+                         family  = cumulative(parallel = FALSE),
+                         data    = hwdata2,
+                         weights = count)
+
+ord_model_equal = vglm(apply_ord ~ pared_grp + public_grp,
+                       family  = cumulative(parallel = TRUE),
+                       data    = hwdata2,
+                       weights = count)
+
+
+#run LRT between these models 
+lrtest = deviance(ord_model_equal) - deviance(ord_model_unequal)
+lrtest
+
+
+
+pchisq(lrtest, df = 2, lower.tail = FALSE)
+```
+
+H0: The slopes of pared and public are equal across cumulative logit equations (proportional odds assumption holds)
+HA: Different slopes are needed across cumulative logit equations (proportional odds assumption does not hold)
+Test statistic: G = 2(L_unequal − L_equal) = 4.018
+Degrees of freedom: 2
+P-value: 0.134
+Conclusion: At alpaha = 0.05, we fail to reject the null hypothesis. There is no statistically significant evidence that the proportional odds assumption is violated. This means that an ordinal logistic regression model is appropriate for these data.
+
+
+
+(3) Estimate the odds ratio and 95% CI of a lower rating (i.e. rating less
+likely) regarding whether to apply to graduate school between students
+with and without parent(s) having graduate degree. Do students with
+parent(s) having graduate degree less or more likely to apply to graduate
+school? Justify your conclusion.
+
+
+```{r}
+#odds ratio and 95%CI for less likely
+
+exp(cbind(OR = coef(ord_model), confint(ord_model)))
+
+```
+
+                            OR     2.5 %   97.5 %
+pared_grpPared: Yes   3.069189 1.8324964 5.170408
+public_grpPublic: Yes 1.104014 0.6206305 1.936267
+
+Becuase this is the odds for a higher rating we need to take the inverse. 
+So, the OR of a lower rating for pared Yes v No = 1/3.069 --> 0.326 (95% CI: 1/5.170, 1/1.832) = (0.193, 0.546)
+
+Interpretation:
+Students who have at least one parent with a graduate degree have 0.326 times the odds of rating themselves in a lower application category compared to students without, after adjusting for institution type. As the OR < 1, students with a parent with a graduate degree are more likely to apply to graduate school than those without. This result is statistically significant as the 95% CI (0.193, 0.546) does not include 1.
+
+
+(4) Estimate the probability of rating “very likely” regarding whether to apply to graduate school for students with parent(s) having graduate degree, and in a private institution. Hint: Pr(y= 3) = 1− Pr(y≤ 2) .
+
+```{r}
+new_data = tibble(
+  pared_grp  = factor("Pared: Yes", levels = c("Pared: No", "Pared: Yes")),
+  public_grp = factor("Public: No", levels = c("Public: No", "Public: Yes"))
+)
+
+predict(ord_model, newdata = new_data, type = "probs")
+```
+
+       Unlikely Somewhat Likely     Very Likely 
+      0.3246644       0.4682876       0.2070480 
+      
+If i coded my model correctly, the estimated probability of rating "very likely" to apply to graduate school is 0.207 (20.7%).
+  
+I checked this also with the hint: Pr(Y = 3) = 1 − Pr(Y ≤ 2) = 1 − (0.325 + 0.468) = 1 − 0.793 = 0.207. 
+
+
+
+
+
+
+

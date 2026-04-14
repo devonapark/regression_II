@@ -1,0 +1,213 @@
+---
+title: "HW7"
+author: "Devon Park"
+date: "2026-04-06"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(MASS)
+library(broom)
+library(knitr)
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+#Load and prep data step
+hwdata3 = read_csv("/Users/devonpark/Desktop/MPH - R Homebase/Applied Regression II/hwdata3.csv") |>
+  mutate(
+    procedure_grp = factor(procedure,
+                           levels = c(0, 1),
+                           labels = c("PTCA", "CABG")) |>
+                    relevel(ref = "PTCA"),
+
+    gender_grp = factor(gender,
+                        levels = c(0, 1),
+                        labels = c("Female", "Male")) |>
+                 relevel(ref = "Female"),
+
+    type_grp = factor(type,
+                      levels = c(0, 1),
+                      labels = c("Elective", "Emergency/Urgent")) |>
+               relevel(ref = "Elective")
+  )
+```
+
+#### Question 1: 
+##### Fit a Poisson regression model with hospital length of stay as the outcome and procedure, gender, age, and type as covariates (model 1). Write down the model. Is overdispersion a potential problem for this Poisson model?
+
+```{r, echo=FALSE}
+#Model1: Fit Poisson model
+#lengthofstay (los) is outcome variable 
+#covariates: procedure, gender, age
+poisson_model = glm(los ~ procedure_grp + gender_grp + age + type_grp,
+                    data   = hwdata3,
+                    family = poisson)
+
+tidy(poisson_model, exponentiate = FALSE, conf.int = TRUE) |>
+  kable(digits = 3, caption = "Poisson Model (Model 1)")
+
+```
+
+
+General Model Form: $log{E(Y \mid procedure, gender, age, type)} = \beta_0 + \beta_1x_1 + \beta_2x_2 + \beta_3x_3 + beta_4x_4$
+
+Y = length of hospital stay in days
+$x_1$ = procedure where 1 = CABG, 0 = PTCA
+$x_2$ = gender where 1 = male, 0 = female
+$x_3$ = age in years
+$x_4$ = type where 1 = emergency/urgent, 0 = elective
+
+
+Model with Coefficients:
+General Model Form: $log{E(Y)} = 0.555 + 1.122x_1 - 0.103x_2 + 0.010x_3 + 0.190x_4$
+
+To check overdispersion we can yse quasipoisson method:
+
+```{r, echo=FALSE}
+#Check overdispersion using quasipoisson
+#can also do this manually
+quasi_model = glm(los ~ procedure_grp + gender_grp + age + type_grp,
+                  data   = hwdata3,
+                  family = quasipoisson)
+
+tidy(quasi_model, exponentiate = FALSE, conf.int = TRUE) |>
+  kable(digits = 3, caption = "Quasipoisson Model")
+```
+
+The dsipersion parameter is calculated as 2.22. As this value is greater than 1, this indicates overdispersion where `Var(Y) ~ 2.22*E(Y)`As poisson assumes that variance and mean are equal, this parameter suggests that the actual variance is more than 2x larger what model 1 assumes (and therefore the standard errors of model 1 are too small). We should address overdispersion. 
+
+
+#### Question 2:
+##### Refit model 1 with the scale parameter being equal to Pearson chi-square divided by residual DF. Estimate the length of stay rate ratio between patients undergoing CABG and PTCA procedures. Provide the 95% confidence interval and interpret
+
+
+
+When I ran `quasi_model` above, it already recalculated using the scale parameter being equal to `Pearson chi-square/ DF`. (Estimates stay the same and the standard errors are recalculated).
+
+```{r, echo=FALSE}
+#Calculate rate ratio and 95% CI for procedure
+#exp(cbind(RR = coef(quasi_model), confint(quasi_model)))
+
+tidy(quasi_model, exponentiate = TRUE, conf.int = TRUE) |>
+  kable(digits = 3, caption = "Quasipoisson Rate Ratios")
+```
+
+To estimate the los rate ratio between patients undergoing CABG and PTCA procedures, we look at the procedures covariate. We get the following values:
+$beta (procedure) = 1.122$
+$Rate Ratio = 3.071$
+$95% Confidence Interval = 2.906,3.246$
+
+Interpretation: The estimated los for patients undergoing CABG is 3.071 times that of patients undergoing the PTCA procedure after adjusting for age, gender, and admission type. We are 95% confident that the true risk ratio exists between 2.906 and 3.246. At alpha = 0.05, these values are statistically significant as the p-value of the coefficient is <<0.001.
+
+#### Question 3:
+##### Use the fitted model in part (2), calculate the expected days of hospital stay for male patients aged 68 who underwent CABG procedure and stayed in an elective type
+
+My attempt to do this via code:
+```{r, echo=FALSE}
+#create dataframe with specifics 
+new_data = tibble(
+  procedure_grp = factor("CABG",             
+                         levels = c("PTCA", "CABG")),
+  gender_grp    = factor("Male",             
+                         levels = c("Female", "Male")),
+  age           = 68,
+  type_grp      = factor("Elective",         
+                         levels = c("Elective", "Emergency/Urgent"))
+)
+
+#plug new dataframe into predict and quasimodel
+
+predict(quasi_model, newdata = new_data, type = "response")
+#type=response --> converts outcome back to days rather than log scale
+```
+The output is 9.69 days. 
+
+We can also do this manually by plugging into our model 1. 
+
+$log{E(Y)} = 0.555 + 1.122(1) − 0.103(1) + 0.010(68) + 0.190(0)$
+$log{E(Y)} = 0.555 + 1.122 − 0.103 + 0.680 + 0 = 2.254$
+$exp(2.254) = 9.687 days$
+
+Woohoo I get the same results!
+
+Interpretation: A 68-year-old male patient who has an elective CABG procedure is expected to stay in the hospital for approximately 9.69 days.
+
+
+#### Question 4:
+##### Refit model 1 using negative binomial regression. Provide a formal test to decide whether a negative binomial model is needed for this data than a Poisson regression model.
+
+```{r, echo=FALSE}
+#Fit negative binomial model - use when mean and variance are not the same
+
+nb_model = glm.nb(los ~ procedure_grp + gender_grp + age + type_grp,
+                  data = hwdata3)
+
+tidy(nb_model, exponentiate = FALSE, conf.int = TRUE) |>
+  kable(digits = 3, caption = "Negative Binomial Model")
+
+```
+
+
+From `nb_model`, theta (1/$\alpha$) is 9.292 with a standard error of 0.668. 
+
+H0: alpha equals zero and poisson model is good
+HA: alpha does not equal zero, so negative binomial model is needed
+Test statistic: z=$\theta/SE(\theta)=9.292/0.668=13.91$
+When `z=13.91`, p-value<0.001.
+
+Interpretation: at $\alpha = 0.05$, we reject the null hypothesis. There is statistically significant evidence that the dispersion parameter is different from zero. THis means that the negative binomial model is more appropriate than the Poisson model for this data.
+
+
+#### Question 5:
+##### Use the negative binomial model to estimate the length of stay rate ratio between patients undergoing CABG and PTCA procedures and provide 95% confidence interval. Is the conclusion different from the Poisson model in part (2)?
+
+```{r, echo=FALSE}
+#get the 95%CI and rate ratio using negative binomial
+#exp(cbind(RR = coef(nb_model), confint(nb_model)))
+
+tidy(nb_model, exponentiate = TRUE, conf.int = TRUE) |>
+  kable(digits = 3, caption = "Negative Binomial Rate Ratios")
+```
+
+
+From the earlier code for `nb_model`, the estimate for procedure ($\beta(procedure)$) is 1.131. The rate ratio between patients undergoing CABG and PTCA procedures is 3.098. The 95% confidence interval is (2.95, 3.249). 
+
+Interpretation: Based on the negative binomial model, the estimated length of hospital stay for patients undergoing CABG is 3.098 times that of patients undergoing the PTCA procedure, after adjusting for gender, age, and admission type. We are 95% confident that the true rate ratio lies between 2.954 and 3.249. This result is statistically significant at the pre-specified alpha of 0.05 as the p-value of the estimator is < 0.001.
+
+
+After comparing both the poisson model and the negative binomial model we see that the estimated rate ratios and their confidence intervals are extremely similar. So, while our conclusion doesnt change significantly after using negative binomial it is still the more appropriate model because we found overdispersion earlier. 
+
+
+
+
+
+
+
+
+

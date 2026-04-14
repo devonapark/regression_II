@@ -1,0 +1,122 @@
+---
+title: "HW8"
+author: "Devon Park"
+date: "2026-04-13"
+output: html_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(survival)
+library(survminer)
+library(broom)
+library(knitr)
+library(cmprsk)
+library(MASS)
+library(VGAM)
+library(geepack)
+library(MuMIn)
+```
+
+
+```{r}
+#load data
+trees = read.csv('/Users/devonpark/Desktop/MPH - R Homebase/Applied Regression II/regression_II/HW8/hwdata4.csv')
+
+head(trees,10)
+view(trees)
+
+#factor treat variable
+trees = trees |> 
+  mutate(treat = factor(treat, levels = c("control", "ozone")))
+#control is reference as I place it first in my factor
+```
+
+Question 1: 
+Fit a GEE model with size of the tree as outcome and time, environment, and their interaction as covariates. Write down the mean response of the GEE model.
+
+```{r}
+gee_model = geeglm(
+  size ~ time + treat + time:treat,
+  data    = trees,
+  id      = tree,
+  family  = gaussian(link = "identity"),
+  corstr  = "exchangeable"   #use exchangeable for compound symmetry (CS)
+)
+
+#ALT METHOD TO FACTOR: trees <- trees |> mutate(treat = relevel(factor(treat), ref = "control"))
+
+summary(gee_model)
+```
+
+Question 2:
+Use different working correlation structures (CS and AR(1)) for the GEE model. Which model yields the better QIC value? Show the SAS/R code and relevant output.
+
+```{r}
+#sae as above but now i add
+gee_model = geeglm(
+  size ~ time + treat + time:treat,
+  data    = trees,
+  id      = tree,
+  family  = gaussian(link = "identity"),
+  corstr  = "exchangeable"   #use exchangeable for compound symmetry (CS)
+)
+
+
+# AR(1) model
+gee_ar1 <- geeglm(
+  size ~ time + treat + time:treat,
+  data    = trees,
+  id      = tree,
+  family  = gaussian(link = "identity"),
+  corstr  = "ar1"
+)
+
+#compare the QIC values between the two models--dont use geepack useMuMIn
+MuMIn::QIC(gee_model)
+MuMIn::QIC(gee_ar1)
+
+
+```
+
+Question 3:
+Use the model with CS working correlation structure to test whether the trajectory of tree size over time is different between the two environments. Write down the hypothesis, test statistic, p-value, and conclusion.
+
+
+Question 4:
+Use the model with CS working correlation structure to estimate the mean tree size change from day 100 to day 200 after January 1st for trees grown in ozone environment and those grown in ozone-free environment, respectively.
+
+
+
+Question 5:
+Calculate the difference between the two estimates in (4). Denote the difference as DIFF. Which β coefficient is DIFF related to? Interpret this β coefficient.
+
+
+
+
+
+
+
+
+

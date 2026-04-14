@@ -1,0 +1,456 @@
+---
+title: "Applied Regression II"
+author: "Devon Park"
+date: "2026-02-27"
+output: pdf_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(survival)
+library(survminer)
+library(broom)
+library(knitr)
+library(tidyverse)
+```
+
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+#Prep the data: same code as last week
+hwdata1 = read_csv("hwdata1-1.csv") |> 
+  mutate(
+    event = censrec, 
+    #Event indicator: 1 = recurrence, 0 = censored (based on codebook)
+    
+    hormone_grp = factor(hormone, 
+                         levels = c(1, 2), 
+                         labels = c("Hormone: Yes", "Hormone: No")) |>
+                          #Hormone therapy groups (codebook: 1=Yes, 2=No)
+  
+        relevel(ref = "Hormone: No"),
+        #Making sure that "No Hormone" is the reference group
+  
+    meno_status = factor(menopause,
+                      levels = c(1, 2),
+                      labels = c("Menopausal: Yes", "Menopausal: No")) |> 
+      relevel(ref = "Menopausal: No")
+      #Women who are not yet experiencing menopause are the reference group
+  )
+    
+```
+
+
+
+
+```{r, echo=FALSE}
+#Model Ouputs:
+model_1 = hwdata1 |> coxph(Surv(rectime, event) ~ hormone_grp, 
+                      data = _) 
+
+model_2 = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp + age + meno_status + size + nodes,
+                           data = _) 
+
+
+model_3 = hwdata1 |> coxph(Surv(rectime, event) 
+                           ~ hormone_grp*nodes + age + meno_status + size,
+                           data = _)
+```
+
+# HW 5 
+
+In Homewrok 4, we fit Cox proportional hazards regression models to : study risk factors for the breast cancer recurrence with the hwdata1.csv: Model 1 with the hormone therapy group as the only covariate; Model 2 with hormone therapy groups, age, menopause status, tumor size, and number of nodes as covariates; Model 3 with hormone therapy groups, age, menopause status, tumor size, number of nodes, and the interaction between hormone therapy groups and number of nodes as covariates.
+
+*Note: For further exploration on the individual models, please refer to the bottom of the homework (after problem three and before the code section)*
+
+## QUESTION 1: 
+*Compare Model 1 and Model 2. State the null and alternative hypothesis, test statistic (state which test was used), p-value, degrees of freedom, and conclusion.*
+
+- **Null Hypothesis:** $H_0 : \beta_{age} = \beta_{menopausal} = \beta_{size} = \beta_{nodes} = 0$
+
+- **Alternative Hypothesis:** $H_A : \text{At least one } \beta \neq 0$
+
+- **Test Statistic:** $G \sim \chi^2_{m2-m1}$
+
+- **Test: Partial likelihood ratio test:** $G=2[l_{m2}(\hat\beta)-l_{m1}(\hat\beta)]$
+  - It is partial becuase Cox model is semiparametric
+  
+- **Define alpha:** $\alpha = 0.05$
+
+- **Degrees of Freedom:** $4$
+  - It is the number of different groups between the models 
+  
+
+```{r, include=FALSE}
+#non-tidy version
+#plrt_12_notidy = anova(model_1, model_2, test = "LRT") |>
+#  as.data.frame() |>
+#  rownames_to_column("model")
+
+plrt_12 = anova(model_1, model_2, test = "LRT") |>
+  as.data.frame() |>
+  tibble::rownames_to_column("model")
+
+```
+
+
+```{r, include=FALSE}
+plrt_stats_12 = plrt_12 |> 
+  filter(model == "2") |> 
+  select(G = Chisq, df = Df, p_value = `Pr(>|Chi|)`) |> #select all stats in one command 
+    knitr::kable(
+    digits = 4,
+    col.names = c("LRT Test Statistic (G)", 
+                  "Degrees of Freedom", 
+                  "p-value")
+  )
+
+
+```
+
+# Model Comparison: Full Output
+```{r, echo=FALSE}
+#full output of the partial likelihood and just the specified stats
+#partial LRT because cox is unspecified
+
+plrt_12 |> 
+    mutate(
+    model = recode(model,
+                   "1" = "Model 1",
+                   "2" = "Model 2")) |> 
+    knitr::kable(
+      digits = 4,
+      col.names = c("Model", 
+                    "Log Likelihood",
+                    "LRT Test Statistic (G)", 
+                    "Df", 
+                    "p-value"),
+    caption = "",
+    booktabs = TRUE
+  )
+```
+
+# Key Values from Partial Likelihood Ratio Test
+```{r, echo=FALSE}
+plrt_stats_12
+```
+
+**Conclusion:** Based on the partial likelihood ratio test, at a predefined $\alpha = 0.05$ we get $G = 57.0778 \sim \chi^2_4$ with a `p < 0.001` (R rounds to 0). As p < 0.05, we reject the null hypothesis that age, menopausal status, tumor size, and number of involved nodes all together have no effect on the hazard of recurrence ($H_0 : \beta_{age} = \beta_{menopausal} = \beta_{size} = \beta_{nodes} = 0$). Further more, these results suggest that Model 2 provides a significantly better fit than Model 1: the additional covariates collectively improve the model.
+
+
+## QUESTION 2: 
+*Compare Model 2 and Model 3. State the null and alternative hypothesis, test statistic (state which test was used), p-value, degrees of freedom, and conclusion.*
+
+- **Null Hypothesis:** $H_0 : \beta_{nodes*hormone} = 0$
+
+- **Alternative Hypothesis:** $H_A : \beta_{nodes*hormone} \neq 0$
+
+- **Test Statistic:** $G \sim \chi^2_{m3-m2}$
+
+- **Test: Partial likelihood ratio test:** $G=2[l_{m3}(\hat\beta)-l_{m2}(\hat\beta)]$
+  - It is partial becuase Cox model is semiparametric
+  
+- **Define alpha:** $\alpha = 0.05$
+
+- **Degrees of Freedom:** $1$
+  - It is the number of different groups between the models 
+
+
+
+```{r, include=FALSE}
+
+plrt_23 = anova(model_2, model_3, test = "LRT") |>
+  as.data.frame() |>
+  tibble::rownames_to_column("model") |> 
+    mutate(
+    model = recode(model,
+                   "1" = "Model 2",
+                   "2" = "Model 3")
+  ) #this would be the same as doing mutate(model = c("Model 2", "Model 3")) because we already stated which one came first in the anova line
+
+```
+
+
+```{r, include=FALSE}
+plrt_stats_23 = plrt_23 |> 
+  filter(model == "Model 3") |> 
+  select(G = Chisq, df = Df, p_value = `Pr(>|Chi|)`) |> 
+  knitr::kable(
+    digits = 3,
+    col.names = c("LRT Test Statistic (G)", 
+                  "Degrees of Freedom", 
+                  "p-value")
+  )
+
+```
+
+
+```{r, echo=FALSE}
+
+plrt_23 |> 
+    knitr::kable(
+      digits = 4,
+      col.names = c("Model", 
+                    "Log Likelihood",
+                    "LRT Test Statistic (G)", 
+                    "Df", 
+                    "p-value"),
+    caption = "Full Model Output",
+    booktabs = TRUE
+  )
+```
+
+
+```{r, echo=FALSE}
+plrt_stats_23
+```
+
+
+**Conclusion:** Based on the partial likelihood ratio test, at a predefined $\alpha = 0.05$ we get $G = 5.686 \sim \chi^2_1$ with `p = 0.0.017`. As p < 0.05, we reject the null hypothesis that the association between hormone therapy and recurrence does not change as the number of nodes changes ($H_0 : \beta_{nodes*hormone} = 0$). Further more, these results suggest that Model 3 provides a significantly better fit than Model 2: the addition of the interaction term improves model fit. 
+
+
+
+## QUESTION 3:
+*Based on Model 3, draw the survival curve for a patient under hormone therapy, at age 53, being menopausal, having tumor of size 25mm, and having 3 nodes involved. What is the probability that this patient survives more than three years (1095 days)? Provide code and relevant output.*
+
+### Part 1: Plot survival function for the specified patient
+
+The survival function $S(t\mid X)$ is the survival probability over time for one specific patient (or $P(T>t \mid X))$).
+
+
+```{r, include=FALSE}
+#Create a row of data (a new dataframe of 1 row) with this patient's characteristics
+pt_53 = 
+  tibble(
+    hormone_grp = 
+      factor("Hormone: Yes", levels = levels(hwdata1$hormone_grp)),
+    age = 53,
+    meno_status = 
+      factor("Menopausal: Yes", levels = levels(hwdata1$meno_status)),
+    size = 25,
+    nodes = 3
+)
+```
+
+
+```{r, include=FALSE}
+#Plug into survfit: 
+  #To compute survival at every time point, we need to get an estimated basline survival S_0(t) and the risk multiplier: beta*X
+
+sf_new = survfit(model_3, newdata = pt_53)
+
+
+#Use the fitted model, but compute survival using THESE covariate values.
+```
+
+
+##### Survival Curve of Specified Patient
+```{r, echo=FALSE, fig.align='center'}
+surv_curv = ggsurvplot(
+  sf_new,
+  data = hwdata1,
+  conf.int = TRUE,
+  xlab = "Days",
+  ylab = "Predicted survival probability",
+  legend = "none",
+  risk.table = FALSE
+)
+
+surv_curv
+```
+
+##### Part 2: Calculate the probabilty of patient survival beyond 3 years (1095 days)
+
+$$P(T>1095\mid X) = S(1095 \mid X)$$
+
+
+```{r, include=FALSE}
+#get the prob of survival at t=1095
+
+sur_1095 = summary(sf_new, times = 1095)
+ 
+#summary looks at the survival curve function and finds the survival probability at t=1095.
+```
+
+##### Survival Statistics at 3 years for Specified Patient
+```{r, echo=FALSE}
+#pull out pertinent values
+#summary() stores each thing in it as components, so i need to manually pull out the pieces and put them together in a table 
+
+
+sur_sum_tbl = tibble(
+  Time = sur_1095$time,
+  'Survival Probability' = sur_1095$surv,
+  'Std. Error' = sur_1095$std.err,
+  'Lower 95% CI' = sur_1095$lower,
+  'Upper 95% CI' = sur_1095$upper
+)
+
+sur_sum_tbl |>
+  knitr::kable(
+    digits = 3,
+    caption = "Predicted 3-Year Survival Probability (Model 3)"
+  )
+```
+
+*Interpreting output:*
+$S(1095 \mid X) = 0.705$: The estimated probability that this patient survives more than 1095 days (3 years) is 70.5%.
+
+`lower 95% CI: 0.642 Upper 95% CI 0.774:` We are 95% confident that the true predicted probability this patient survives more than 3 years lies between 64.2% and 77.4%.
+
+`n.risk = 333:` The number of subjects *still at risk* (event-free and under observation) just before t = 1095 in the original dataset. Value used to estimate the baseline survival.
+
+`n.event = 224:` The number of observed recurrence events that occurred around 1095 days in the risk set.
+
+***
+
+## Inidividual Model Exmplanations: 
+
+##### Notes on Data:
+Based on the dataset, variable "hormone" equaled 1 for patients under hormone therapy and 2 for patients not under hormone therapy. Those not under hormone therapy were considered the reference group. Additionally, variable "menopause" equaled 1 for participants who were experiencing menopause and 2 for those who were not experiencing mnopause. The group of participants who were not experiencing menopause were the reference group for this variable. 
+
+
+##### Model 1
+
+Model 1 is a Cox proportional hazards model including hormone therapy group as the only covariate
+
+- **Covariate:** Hormone Therapy Group
+- **Model form:** $\lambda(t \mid hormone) = \lambda_0e^{\beta_1*hormone}$
+- **Fitted model ($\hat{\beta}$ rounded to three decimals):** $\lambda(t \mid hormone) = \lambda_0e^{0.364*hormone}$
+
+
+##### Model 1 output: exoponentiated coefficient
+```{r, echo=FALSE}
+model_1_results = model_1 |> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+#Clean Variable Names in Output
+model_1_results = model_1_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      TRUE ~ term
+    )
+  )
+
+
+#Cleaned Up Output
+model_1_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+```
+
+The corresponding hazard ratio for hormone therapy is `exp(0.364) = 1.439`. These results suggest that patients in hormone therapy have 1.439 times the hazard of recurrence compared to those not under hormone therapy `(95%CI:1.126,1.839)`. That the 95% confidence interval does not include the null value of 1 (no difference in hazard between hormone therapy group and reference group) and that the `p-value=0.004`, suggests there is statistically significant evidence at $\alpha=0.05$ that hormone therapy is associated with an increased hazard of recurrence.
+
+
+
+##### Model 2
+
+Model 2 extends Model 1 by adjusting for additional covariates.
+
+- **Covariates:** Hormone therapy groups, Age, Menopause status, Tumor size, and Number of nodes
+- **Model form:** $\lambda(t\mid X) = \lambda_0e^{\beta_1*hormone + \beta_2*age + \beta_3*menopausal + \beta_4*size + \beta_5*nodes}$
+- **Fitted model ($\hat{\beta}$ rounded to three decimals):** 
+$$\lambda(t \mid X) = \lambda_0e^{0.381*hormone -0.014*age -0.353*menopausal + 0.008*size + 0.052*nodes}$$
+
+##### Model 2 output: exoponentiated coefficients
+```{r, echo=FALSE}
+model_2_results = model_2 |> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+
+#Clean Variable Names in Output
+model_2_results = model_2_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      term == "meno_statusMenopausal: Yes" ~ "Menopausal: Yes",
+      term == "nodes" ~ "Nodes involved",
+      term == "age" ~ "Age (years)",
+      term == "size" ~ "Tumor size (mm)",
+      TRUE ~ term
+    )
+  )
+
+
+#Cleaned Up Output
+model_2_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+```
+
+After adjustment for age, menopausal status, tumor size, and number of involved lymph nodes, the hazard ratio for hormone therapy is `exp(0.381) = 1.464 (95% CI: 1.138–1.882, p-value = 0.003)`. That the hazard ratio for hormone therapy remains similar between Model 1 `(HR = 1.439)` and Model 2 `(HR = 1.464)` suggests that the added covariates (age, menopausal status, tumor size, and number of involved nodes) do not substantially confound the association between hormone therapy and recurrence. However, the number of nodes (variable = nodes) appears to have the greatest association to hazard of occurence.For every additional node the hazard increases by `5.3% (HR: 1.053, p-value<<0.05` after adjusting for the other covariates. 
+
+
+##### Model 3
+
+Model 3 further extends Model 2 by including an interaction term between hormone therapy and number of nodes
+
+- **Covariates:** Hormone therapy groups, Age, Menopause status, Tumor size, Number of nodes, and the Interaction between hormone therapy groups and number of nodes
+- **Model form:** $\lambda(t\mid X) = \lambda_0e^{\beta_1*hormone + \beta_2*age + \beta_3*menopausal + \beta_4*size + \beta_5*nodes + \beta_6*nodes*hormone}$
+- **Fitted model ($\hat{\beta}$ rounded to three decimals):** 
+$$\lambda(t\mid X) = \lambda_0e^{0.630*hormone  -0.015*age  -0.393*menopausal + 0.007*size + 0.083*nodes -0.038*nodes*hormone}$$
+
+##### Model 3 output: exoponentiated coefficients
+```{r, echo=FALSE}
+model_3_results = model_3|> 
+          tidy(exponentiate = TRUE, conf.int = TRUE)
+
+model_3_results = model_3_results |>
+  mutate(
+    term = case_when(
+      term == "hormone_grpHormone: Yes" ~ "Hormone: Yes",
+      term == "hormone_grpHormone: Yes:nodes" ~ "Hormone: Yes × nodes",
+      term == "meno_statusMenopausal: Yes" ~ "Menopausal: Yes",
+      term == "nodes" ~ "Nodes involved",
+      term == "age" ~ "Age (years)",
+      term == "size" ~ "Tumor size (mm)",
+      TRUE ~ term
+    )
+  )
+
+#Cleaned Up Output
+model_3_results |>
+  knitr::kable(
+    digits = 3,
+    col.names = c("Variable", "Hazard Ratio", "Std Error", "Z statistic", "p-value", "Lower 95% CI", "Upper 95% CI"),
+    caption = ""
+  )
+
+
+
+#hormone_grp*nodes --> includes the individual terms as well as the interaction term
+```
+
+Model 3 extends Model 2 by including an interaction between hormone therapy and number of involved lymph nodes. The main effect of hormone therapy `(HR = 1.878, 95% CI: 1.353-2.607, p = 0.000)` is the hazard ratio when `nodes = 0`. The interaction term is statistically significant `(HR = 0.963, 95% CI: 0.934–0.992, p = 0.013)` at $\alpha = 0.05$. This suggests that the effect of hormone therapy on recurrence depends on the number of nodes involved.
+
+The interaction hazard ratio of `0.963` suggests that for each additional involved node, the hazard ratio for hormone therapy decreases by approximately 3.7%. In other words, the effect of hormone therapy on the hazard of recurrence becomes smaller as the number of nodes increases.
+
+
