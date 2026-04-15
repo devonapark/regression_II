@@ -29,13 +29,97 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 ```{r, include = FALSE, message = FALSE, warning = FALSE}
-library(survival)
-library(survminer)
-library(broom)
-library(knitr)
-library(cmprsk)
-library(MASS)
-library(VGAM)
-library(geepack)
-library(MuMIn)
+# library(survival)
+# library(survminer)
+# library(broom)
+# library(knitr)
+# library(cmprsk)
+# library(MASS)
+# library(VGAM)
+# library(geepack)
+# library(MuMIn)
+
+#new library
+library(nlme)
 ```
+
+
+```{r}
+data <- read_csv('/Users/devonpark/Desktop/MPH - R Homebase/Applied Regression II/DataSets/hwdata4.csv')
+
+glimpse(data)
+
+#set control as the reference group for treat variable 
+data = data |> 
+  mutate(tree = factor(tree), 
+         treat = relevel(factor(treat), ref = "control"))
+
+#convert tree from double to categorical factor (it is our ID so we dont want R to treat it like a continuous variable)
+#factor treat and set control as reference
+```
+
+
+Question 1: Spaghetti Plot
+```{r}
+#create spaghetti plots of the size of the tree on the growing time with separate panels for the two growing environments.
+
+#use ggplot like we did with dental
+
+ggplot(data, aes(x = time, y = size, group = tree)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "blue") +
+  facet_wrap(~ treat) +
+  labs(title = "Spaghetti plot of tree size over time by treatment",
+       x = "Time (days)", 
+       y = "Tree Size")
+
+
+#using facet_wrap because we only have one grouping variable 
+#would use facet_grid if i had more than two variables and want to make a proper grid (rows are one variable and column is a different gender)
+
+```
+
+```{r}
+#Question 3: Hypothesis test on interaction term
+#iternaction term is a fixed affect so we can use a t test
+
+fit1 = lme(size ~ time * treat,
+            data = data,
+            method = "ML",
+            random = ~ 1 | tree)
+
+summary(fit1)
+```
+
+
+```{r}
+#Question 4: within-subject correlation coefficient
+
+VarCorr(fit1)
+
+
+#intercept variance  is tau squared = between-tree variance: how much trees differ from ach other in their baseline size
+#residual variance value is vee squared = within-tree variance: how much individual measurements on the same tree vary around that tree's line
+
+
+```
+
+
+```{r}
+#Question 6: Compare random intercept and slope model to random intercept model 
+
+fit2 = lme(size ~ time * treat,
+            data = data,
+            method = "ML",
+            random = ~ 1 + time | tree)
+
+summary(fit2)
+
+anova(fit1, fit2)
+
+```
+
+
+
